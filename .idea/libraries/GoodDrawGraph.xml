@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="GoodDrawGraph">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/external-jars/GoodDrawGraph.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
