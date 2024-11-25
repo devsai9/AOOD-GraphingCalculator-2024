@@ -1,5 +1,6 @@
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.*;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
@@ -10,14 +11,16 @@ public class EquationBox extends JPanel {
     private final JButton removeButton;
     private final JLabel statusCircle;
     private boolean isGraphed = true;
-    private boolean isValidEquation = true;
+    private boolean isValidEquation = false;
+    private final JPopupMenu colorMenu;
+    private Color currentColor = Color.BLACK;
 
     public EquationBox() {
         setLayout(new FlowLayout(FlowLayout.LEFT));
 
-        statusCircle = new JLabel("●");
+        statusCircle = new JLabel("◯");
         statusCircle.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        statusCircle.setForeground(Color.GREEN);
+        statusCircle.setForeground(Color.RED);
         add(statusCircle);
 
         equationField = new JTextField(15);
@@ -27,34 +30,91 @@ public class EquationBox extends JPanel {
         removeButton.addActionListener(e -> removeEquationBox());
         add(removeButton);
 
-        statusCircle.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent evt) {
-                if (isValidEquation) {
-                    toggleGraphingStatus();
-                }
-            }
-        });
+        colorMenu = new JPopupMenu();
+        createColorMenu();
+
+        addStatusCircleListeners();
 
         equationField.getDocument().addDocumentListener((SimpleDocumentListener) () -> {
             try {
                 XYGrapher grapher = parseEquation(equationField.getText());
                 isValidEquation = true;
-                statusCircle.setForeground(isGraphed ? Color.GREEN : Color.BLACK);
+                updateStatusCircleColor();
                 if (listener != null) listener.onEquationChange();
             } catch (Exception e) {
                 isValidEquation = false;
                 if (listener != null) listener.onEquationChange();
-                statusCircle.setForeground(Color.RED);
+                updateStatusCircleColor();
             }
         });
     }
 
+    private void addStatusCircleListeners() {
+        statusCircle.addMouseListener(new java.awt.event.MouseAdapter() {
+            private Timer holdTimer;
+
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent evt) {
+                holdTimer = new Timer(500, e -> showColorMenu(evt.getXOnScreen(), evt.getYOnScreen()));
+                holdTimer.setRepeats(false);
+                holdTimer.start();
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent evt) {
+                if (holdTimer != null && holdTimer.isRunning()) {
+                    holdTimer.stop();
+                    if (isValidEquation) {
+                        toggleGraphingStatus();
+                    }
+                }
+            }
+        });
+    }
+
+    private void createColorMenu() {
+        Color[] colors = {
+                Color.BLACK,
+                new Color(255, 87, 82), // Light Red
+                new Color(65, 159, 255), // Light Blue
+                new Color(86, 216, 108), // Light Green
+                new Color(250, 126, 25), // Light Orange
+                new Color(140, 96, 242) // Light Purple
+        };
+        for (Color color : colors) {
+            JMenuItem menuItem = new JMenuItem(" ");
+            menuItem.setBackground(color);
+            menuItem.setOpaque(true);
+            menuItem.addActionListener(e -> {
+                currentColor = color;
+                statusCircle.setForeground(currentColor);
+                if (listener != null) listener.onEquationChange();
+            });
+            colorMenu.add(menuItem);
+        }
+    }
+
+    private void showColorMenu(int x, int y) {
+        colorMenu.show(this, x - this.getLocationOnScreen().x, y - this.getLocationOnScreen().y);
+    }
+
     private void toggleGraphingStatus() {
         isGraphed = !isGraphed;
-        statusCircle.setForeground(isGraphed ? Color.GREEN : Color.BLACK);
-
+        updateStatusCircleColor();
         if (listener != null) listener.onEquationChange();
+    }
+
+    private void updateStatusCircleColor() {
+        if (!isValidEquation) {
+            statusCircle.setForeground(Color.RED);
+            statusCircle.setText("◯");
+        } else if (isGraphed) {
+            statusCircle.setForeground(currentColor);
+            statusCircle.setText("●");
+        } else {
+            statusCircle.setForeground(Color.BLACK);
+            statusCircle.setText("◯");
+        }
     }
 
     public void setEquationChangeListener(EquationChangeListener listener) {
@@ -64,7 +124,9 @@ public class EquationBox extends JPanel {
     public XYGrapher getGrapher() {
         if (isGraphed && isValidEquation) {
             try {
-                return parseEquation(equationField.getText());
+                XYGrapher grapher = parseEquation(equationField.getText());
+                grapher.setGraphColor(currentColor);
+                return grapher;
             } catch (Exception e) {
                 return null;
             }
@@ -95,15 +157,12 @@ public class EquationBox extends JPanel {
 
         cleanedEquation = cleanedEquation.replace("y=", "").trim();
 
-        // Validate the cleaned equation
         if (cleanedEquation.isEmpty()) {
             throw new Exception("Invalid polynomial equation format. Equation cannot be empty.");
         }
 
-        // Use a map to store coefficients dynamically
         Map<Integer, Double> coefficientMap = getCoefficientMap(cleanedEquation);
 
-        // Convert the map to an array for PolynomialGrapher
         int maxExponent = coefficientMap.keySet().stream().max(Integer::compare).orElse(0);
         double[] coefficients = new double[maxExponent + 1];
 
@@ -147,20 +206,18 @@ public class EquationBox extends JPanel {
             if (term.contains("x")) {
                 String[] parts = term.split("x");
 
-                // Default exponent is 1 if no ^ is provided
                 int exponent = 1;
                 if (parts.length > 1 && parts[1].startsWith("^")) {
                     exponent = Integer.parseInt(parts[1].substring(1));
                 }
 
-                // Default coefficient is 1 if no number is provided
                 double coefficient = parts[0].isEmpty() || parts[0].equals("+") ? 1 :
                         parts[0].equals("-") ? -1 :
                                 Double.parseDouble(parts[0]);
 
                 coefficientMap.put(exponent, coefficientMap.getOrDefault(exponent, 0.0) + coefficient);
 
-            } else if (!term.isEmpty()) { // Ensure term is not empty before parsing as a constant
+            } else if (!term.isEmpty()) {
                 double constant = Double.parseDouble(term);
                 coefficientMap.put(0, coefficientMap.getOrDefault(0, 0.0) + constant);
             }
@@ -169,24 +226,20 @@ public class EquationBox extends JPanel {
     }
 
     private XYGrapher parseParametricEquation(String cleanedEquation) throws Exception {
-        // Split the equation into its components
         String[] parts = cleanedEquation.split(";");
         if (parts.length != 3) {
             throw new Exception("Invalid parametric equation format.");
         }
 
-        // Extract x function, y function, and t range
         String xFunction = parts[0].split("=")[1].trim();
         String yFunction = parts[1].split("=")[1].trim();
         String tRangeString = parts[2].trim();
 
-        // Replace standalone "pi" or "π" with Math.PI and handle coefficients
         tRangeString = tRangeString.replaceAll("(?<![0-9.])pi", String.valueOf(Math.PI))
                 .replaceAll("(?<![0-9.])π", String.valueOf(Math.PI))
                 .replaceAll("([0-9.]+)pi", "$1*" + Math.PI)
                 .replaceAll("([0-9.]+)π", "$1*" + Math.PI);
 
-        // Parse the t range
         String[] tRangeParts = tRangeString.split("<");
         if (tRangeParts.length != 3 || !tRangeParts[1].equals("t")) {
             throw new Exception("Invalid t range format. Expected format: tStart<t<tEnd.");
@@ -194,7 +247,6 @@ public class EquationBox extends JPanel {
         double tStart = evaluateExpression(tRangeParts[0].trim());
         double tEnd = evaluateExpression(tRangeParts[2].trim());
 
-        // Supported trigonometric functions
         Map<String, Function<Double, Double>> trigFunctions = new HashMap<>();
         trigFunctions.put("sin", Math::sin);
         trigFunctions.put("cos", Math::cos);
@@ -203,16 +255,13 @@ public class EquationBox extends JPanel {
         trigFunctions.put("csc", t -> 1 / Math.sin(t));
         trigFunctions.put("cot", t -> 1 / Math.tan(t));
 
-        // Parser for evaluating a single equation
         Function<String, Function<Double, Double>> parseEquation = equation -> {
             for (String func : trigFunctions.keySet()) {
                 if (equation.contains(func)) {
                     String[] components = equation.split(func + "\\(");
 
-                    // Parse the coefficient, default to 1 if missing
                     double coefficient = components[0].trim().isEmpty() ? 1 : Double.parseDouble(components[0].trim());
 
-                    // Parse the inner coefficient, default to 1 if missing
                     double innerCoefficient = components[1].trim().isEmpty() || components[1].startsWith("t")
                             ? 1
                             : Double.parseDouble(components[1].replace("t)", "").trim());
@@ -224,11 +273,9 @@ public class EquationBox extends JPanel {
             throw new IllegalArgumentException("Unsupported function in equation: " + equation);
         };
 
-        // Parse x and y equations
         Function<Double, Double> xEvaluator = parseEquation.apply(xFunction);
         Function<Double, Double> yEvaluator = parseEquation.apply(yFunction);
 
-        // Return the parametric grapher
         return new ParametricGrapher() {
             @Override
             public double tInterval() {
@@ -273,12 +320,12 @@ public class EquationBox extends JPanel {
     }
 
     private double evaluateExpression(String expression) throws Exception {
-        expression = expression.replace(" ", ""); // Remove whitespace
+        expression = expression.replace(" ", "");
         if (expression.contains("*")) {
             String[] parts = expression.split("\\*");
             return Double.parseDouble(parts[0]) * Double.parseDouble(parts[1]);
         }
-        return Double.parseDouble(expression); // No multiplication, just a number
+        return Double.parseDouble(expression);
     }
 
     interface EquationChangeListener {
